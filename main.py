@@ -11,7 +11,7 @@ MQTT_USERNAME = "smart_plug"
 MQTT_PASSWORD = "smartPlug12?"
 
 # Global MQTT client instance
-mqtt_client = paho.Client(paho.CallbackAPIVersion.VERSION2,client_id="", userdata=None, protocol=paho.MQTTv5)
+mqtt_client = paho.Client(paho.CallbackAPIVersion.VERSION1,client_id="", userdata=None, protocol=paho.MQTTv5)
 
 # MQTT Callbacks
 def on_connect(client, userdata, flags, rc, properties=None):
