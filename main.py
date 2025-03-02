@@ -1,7 +1,7 @@
 import asyncio
 import paho.mqtt.client as paho
 from paho import mqtt
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, BackgroundTasks
 from contextlib import asynccontextmanager
 
 MQTT_BROKER = "20daef8a88f64af88d27eb5f04ad782d.s2.eu.hivemq.cloud"
@@ -10,8 +10,8 @@ MQTT_TOPIC = "smart_plug/temperature"
 MQTT_USERNAME = "smart_plug"
 MQTT_PASSWORD = "smartPlug12?"
 
-# Global MQTT client instance
-mqtt_client = paho.Client(paho.CallbackAPIVersion.VERSION1,client_id="", userdata=None, protocol=paho.MQTTv5)
+mqtt_client = paho.Client(client_id="", userdata=None, protocol=paho.MQTTv5)
+message_queue = asyncio.Queue()  # Store received messages asynchronously
 
 # MQTT Callbacks
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -20,7 +20,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def on_message(client, userdata, msg):
     print(f"Received message: {msg.topic} - {msg.payload.decode()}")
-    print(msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
+    asyncio.create_task(message_queue.put(msg.payload.decode()))  # Store message in queue
 
 def on_publish(client, userdata, mid, properties=None):
     print(f"Message published (MID: {mid})")
@@ -28,7 +28,12 @@ def on_publish(client, userdata, mid, properties=None):
 def on_subscribe(client, userdata, mid, granted_qos, properties=None):
     print(f"Subscribed: {mid} {granted_qos}")
 
-# FastAPI lifespan event to start and stop MQTT client
+# Background MQTT Listener
+async def mqtt_loop():
+    while True:
+        mqtt_client.loop(timeout=1.0)  # Process network traffic
+        await asyncio.sleep(0.1)  # Prevent blocking the event loop
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Starting MQTT Client...")
@@ -40,19 +45,17 @@ async def lifespan(app: FastAPI):
     mqtt_client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
     mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT)
-    mqtt_client.loop_start()  # Run MQTT in a separate thread
-    
+
+    task = asyncio.create_task(mqtt_loop())  # Start MQTT loop in the background
     yield
-    
     print("Stopping MQTT Client...")
-    mqtt_client.loop_stop()
+    task.cancel()
     mqtt_client.disconnect()
 
 app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 async def root():
-    mqtt_client.publish("smart_plug/temperature", payload="moikka", qos=1)
     return {"message": "FastAPI MQTT Server Running"}
 
 @app.post("/publish/")
@@ -60,3 +63,9 @@ async def publish_message(topic: str = MQTT_TOPIC, message: str = "Hello MQTT"):
     mqtt_client.publish(topic, payload=message, qos=1)
     return {"status": "Message Sent", "topic": topic, "message": message}
 
+@app.get("/messages/")
+async def get_messages():
+    messages = []
+    while not message_queue.empty():
+        messages.append(await message_queue.get())  # Retrieve all messages
+    return {"received_messages": messages}
