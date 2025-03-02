@@ -20,6 +20,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def on_message(client, userdata, msg):
     print(f"Received message: {msg.topic} - {msg.payload.decode()}")
+    print(msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
 
 def on_publish(client, userdata, mid, properties=None):
     print(f"Message published (MID: {mid})")
